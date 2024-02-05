@@ -137,7 +137,7 @@ workflows:
       - Deploy to TestFlight:
           filters:
             tags:
-              only: testflight
+              only: main
 
   Production Deployment:
     jobs:
