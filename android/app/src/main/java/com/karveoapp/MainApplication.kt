@@ -1,4 +1,4 @@
-package com.karveoapp
+package com.karveo
 
 import android.app.Application
 import com.facebook.react.PackageList

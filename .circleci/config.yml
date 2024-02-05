@@ -1,0 +1,147 @@
+version: 2.1
+
+commands:
+  setup_xcode:
+    description: 'Set up Xcode'
+    steps:
+      - run:
+          name: Cat
+          command: cat ios/Karveo/Info.plist
+      - run:
+          name: Select Xcode Version
+          command: sudo xcode-select -s /Applications/Xcode-15.2.app
+  setup_android:
+    description: 'Set up Android'
+    steps:
+      - run:
+          name: Installer Android SDK
+          command: |
+            wget https://dl.google.com/android/repository/commandlinetools-mac-6609375_latest.zip
+            unzip commandlinetools-mac-6609375_latest.zip -d $HOME/android-sdk
+            echo 'export ANDROID_HOME="$HOME/android-sdk"' >> $BASH_ENV
+            source $BASH_ENV
+            yes | $HOME/android-sdk/tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} --licenses || if [ $? -ne '141' ]; then exit $?; fi;  #Captures SIGPIPE 141 error but still allow repeating "y" to accept all licenses
+            $HOME/android-sdk/tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "platform-tools" "platforms;android-30" >/dev/null
+
+  install_dependencies:
+    description: 'Install Dependencies'
+    steps:
+      - run:
+          name: Install Packages
+          command: yarn install
+      - run:
+          name: Install Gems
+          command: |
+            cd ios
+            bundle install
+            cd ../android
+            bundle install
+      - restore_cache:
+          key: pods-{{ checksum "ios/Podfile.lock" }}
+      - run:
+          name: Install Pods
+          command: |
+            cd ios
+            if [ ! -d Pods ]; then
+              pod install
+            fi
+      - save_cache:
+          key: pods-{{ checksum "ios/Podfile.lock" }}
+          paths:
+            - ./ios/Pods
+
+  prebuild:
+    description: 'Prebuild'
+    steps:
+      - run:
+          name: Expo Prebuild
+          command: npx expo prebuild
+
+  app_store_deploy:
+    description: 'Deploy to App Store'
+    steps:
+      - run:
+          name: Build and Deploy to App Store
+          command: |
+            cd ios
+            bundle exec fastlane ios release
+
+  testflight_deploy:
+    description: 'Deploy to TestFlight'
+    steps:
+      - run:
+          name: Build and Deploy to TestFlight
+          command: |
+            cd ios
+            bundle exec fastlane ios testflight_deploy
+      - store_artifacts:
+          path: output
+
+  install_android:
+    description: 'Install Android SDK'
+    steps:
+      - run:
+          name: Installer Android SDK
+          command: |
+            wget https://dl.google.com/android/repository/commandlinetools-mac-6609375_latest.zip
+            unzip commandlinetools-mac-6609375_latest.zip -d $HOME/android-sdk
+            echo 'export ANDROID_HOME="$HOME/android-sdk"' >> $BASH_ENV
+            source $BASH_ENV
+            yes | $HOME/android-sdk/tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} --licenses || if [ $? -ne '141' ]; then exit $?; fi;  #Captures SIGPIPE 141 error but still allow repeating "y" to accept all licenses
+            $HOME/android-sdk/tools/bin/sdkmanager --sdk_root=${ANDROID_HOME} "platform-tools" "platforms;android-30" >/dev/null
+
+  deploy_play_store:
+    description: 'Deploy to Google Play'
+    steps:
+      - run:
+          name: Deploy to Google Play
+          command: |
+            echo "sdk.dir=/usr/local/share/android-sdk" > android/local.properties
+            cd android
+            bundle exec fastlane android deploy
+
+jobs:
+  Deploy to Production:
+    macos:
+      xcode: 15.2.0
+    environment:
+      FL_OUTPUT_DIR: output
+      FASTLANE_LANE: test
+    steps:
+      - checkout
+      - setup_xcode
+      - install_android
+      - install_dependencies
+      - prebuild
+      - app_store_deploy
+      - deploy_play_store
+
+  Deploy to TestFlight:
+    macos:
+      xcode: 15.2.0
+    environment:
+      FL_OUTPUT_DIR: output
+      FASTLANE_LANE: test
+    steps:
+      - checkout
+      - setup_xcode
+      - install_dependencies
+      - prebuild
+      - testflight_deploy
+
+workflows:
+  version: 2
+
+  TestFlight Deployment:
+    jobs:
+      - Deploy to TestFlight:
+          filters:
+            tags:
+              only: testflight
+
+  Production Deployment:
+    jobs:
+      - Deploy to Production:
+          filters:
+            tags:
+              only: release
